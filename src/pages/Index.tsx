@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
+import JSZip from 'jszip';
 
 interface Project {
   id: string;
@@ -263,6 +264,38 @@ const Index = () => {
     };
     
     reader.readAsText(file);
+    event.target.value = '';
+  };
+
+  const handleExportZip = async () => {
+    if (!currentProject) {
+      toast.error('Нет активного проекта для экспорта');
+      return;
+    }
+
+    try {
+      const zip = new JSZip();
+      
+      zip.file('index.html', htmlCode);
+      zip.file('styles.css', cssCode);
+      zip.file('script.js', jsCode);
+      
+      const blob = await zip.generateAsync({ type: 'blob' });
+      
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${currentProject.name}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success('Проект экспортирован в ZIP!');
+    } catch (error) {
+      toast.error('Ошибка при экспорте проекта');
+      console.error(error);
+    }
   };
 
   const handlePublish = () => {
@@ -322,6 +355,15 @@ const Index = () => {
               Проекты
             </Button>
             <Button
+              variant="outline"
+              size="sm"
+              className="hover:bg-secondary/10 transition-all duration-300"
+              onClick={handleExportZip}
+            >
+              <Icon name="Download" size={18} className="mr-2" />
+              Экспорт ZIP
+            </Button>
+            <Button
               variant="ghost"
               size="sm"
               className="hover:bg-primary/10 transition-all duration-300"
@@ -357,6 +399,17 @@ const Index = () => {
                 >
                   <Icon name="FolderOpen" size={18} className="mr-2" />
                   Проекты
+                </Button>
+                <Button
+                  variant="outline"
+                  className="justify-start hover:bg-secondary/10 transition-all duration-300"
+                  onClick={() => {
+                    handleExportZip();
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Icon name="Download" size={18} className="mr-2" />
+                  Экспорт ZIP
                 </Button>
                 <Button
                   variant="ghost"
