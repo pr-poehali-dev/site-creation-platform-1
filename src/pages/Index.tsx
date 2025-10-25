@@ -18,7 +18,19 @@ interface Project {
   html: string;
   css: string;
   js: string;
+  favicon?: string;
   createdAt: number;
+}
+
+interface VisualElement {
+  id: string;
+  type: 'text' | 'link' | 'image';
+  content: string;
+  x: number;
+  y: number;
+  fontSize?: number;
+  color?: string;
+  href?: string;
 }
 
 const defaultHTML = `<!DOCTYPE html>
@@ -147,9 +159,20 @@ const Index = () => {
   const [fileManagerOpen, setFileManagerOpen] = useState(false);
   const [newProjectDialog, setNewProjectDialog] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
+  const [visualMode, setVisualMode] = useState(false);
+  const [visualElements, setVisualElements] = useState<VisualElement[]>([]);
+  const [bgColor, setBgColor] = useState('#ffffff');
+  const [draggingElement, setDraggingElement] = useState<string | null>(null);
+  const [addElementDialog, setAddElementDialog] = useState(false);
+  const [newElementType, setNewElementType] = useState<'text' | 'link' | 'image'>('text');
+  const [newElementContent, setNewElementContent] = useState('');
+  const [newElementHref, setNewElementHref] = useState('');
+  const [favicon, setFavicon] = useState('');
   const htmlFileRef = useRef<HTMLInputElement>(null);
   const cssFileRef = useRef<HTMLInputElement>(null);
   const jsFileRef = useRef<HTMLInputElement>(null);
+  const faviconFileRef = useRef<HTMLInputElement>(null);
+  const visualPreviewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const savedProjects = localStorage.getItem('codestudio_projects');
@@ -298,6 +321,130 @@ const Index = () => {
     }
   };
 
+  const handleFaviconUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      setFavicon(result);
+      toast.success('Favicon загружен!');
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  };
+
+  const handleVisualElementDragStart = (elementId: string) => {
+    setDraggingElement(elementId);
+  };
+
+  const handleVisualPreviewMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!draggingElement || !visualPreviewRef.current) return;
+
+    const rect = visualPreviewRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    setVisualElements(prev =>
+      prev.map(el =>
+        el.id === draggingElement ? { ...el, x, y } : el
+      )
+    );
+  };
+
+  const handleVisualPreviewMouseUp = () => {
+    setDraggingElement(null);
+  };
+
+  const addVisualElement = () => {
+    if (!newElementContent.trim()) {
+      toast.error('Заполните содержимое элемента');
+      return;
+    }
+
+    const newElement: VisualElement = {
+      id: Date.now().toString(),
+      type: newElementType,
+      content: newElementContent,
+      x: 50,
+      y: 50,
+      fontSize: 16,
+      color: '#000000',
+      href: newElementType === 'link' ? newElementHref : undefined,
+    };
+
+    setVisualElements([...visualElements, newElement]);
+    setNewElementContent('');
+    setNewElementHref('');
+    setAddElementDialog(false);
+    toast.success('Элемент добавлен!');
+  };
+
+  const saveVisualToCode = () => {
+    let newHTML = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${currentProject?.name || 'My Site'}</title>
+  ${favicon ? `<link rel="icon" type="image/x-icon" href="${favicon}">` : ''}
+</head>
+<body>
+  <div class="visual-container">
+`;
+
+    visualElements.forEach(el => {
+      if (el.type === 'text') {
+        newHTML += `    <div class="visual-text" style="position: absolute; left: ${el.x}px; top: ${el.y}px; font-size: ${el.fontSize}px; color: ${el.color};">${el.content}</div>\n`;
+      } else if (el.type === 'link') {
+        newHTML += `    <a href="${el.href}" class="visual-link" style="position: absolute; left: ${el.x}px; top: ${el.y}px; font-size: ${el.fontSize}px; color: ${el.color};">${el.content}</a>\n`;
+      } else if (el.type === 'image') {
+        newHTML += `    <img src="${el.content}" class="visual-image" style="position: absolute; left: ${el.x}px; top: ${el.y}px; max-width: 200px;" />\n`;
+      }
+    });
+
+    newHTML += `  </div>
+</body>
+</html>`;
+
+    const newCSS = `body {
+  margin: 0;
+  padding: 0;
+  background-color: ${bgColor};
+  font-family: Arial, sans-serif;
+}
+
+.visual-container {
+  position: relative;
+  width: 100vw;
+  min-height: 100vh;
+}
+
+.visual-text, .visual-link {
+  cursor: move;
+  user-select: none;
+}
+
+.visual-link {
+  text-decoration: none;
+}
+
+.visual-link:hover {
+  opacity: 0.8;
+}
+
+.visual-image {
+  cursor: move;
+  user-select: none;
+}`;
+
+    setHtmlCode(newHTML);
+    setCssCode(newCSS);
+    setVisualMode(false);
+    toast.success('Изменения сохранены в код!');
+  };
+
   const handlePublish = () => {
     saveCurrentProject();
     const projectId = Math.random().toString(36).substring(7);
@@ -316,6 +463,7 @@ const Index = () => {
       <!DOCTYPE html>
       <html>
         <head>
+          ${favicon ? `<link rel="icon" type="image/x-icon" href="${favicon}">` : ''}
           <style>${cssCode}</style>
         </head>
         <body>
@@ -445,6 +593,15 @@ const Index = () => {
               <h2 className="text-lg font-semibold">Редактор</h2>
               <div className="flex gap-2">
                 <Button
+                  variant={visualMode ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setVisualMode(!visualMode)}
+                  className={visualMode ? 'bg-accent' : 'hover:bg-accent/10'}
+                >
+                  <Icon name={visualMode ? 'Code2' : 'Paintbrush'} size={16} className="mr-2" />
+                  {visualMode ? 'Код' : 'Конструктор'}
+                </Button>
+                <Button
                   variant="outline"
                   size="sm"
                   onClick={saveCurrentProject}
@@ -556,39 +713,146 @@ const Index = () => {
                 />
               </TabsContent>
             </Tabs>
+
+            {visualMode && (
+              <div className="mt-4 space-y-3 border-t border-border pt-4">
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Label className="text-xs">Фон превью</Label>
+                    <div className="flex gap-2 mt-1">
+                      <Input
+                        type="color"
+                        value={bgColor}
+                        onChange={(e) => setBgColor(e.target.value)}
+                        className="w-20 h-9 cursor-pointer"
+                      />
+                      <Input
+                        type="text"
+                        value={bgColor}
+                        onChange={(e) => setBgColor(e.target.value)}
+                        className="flex-1 h-9"
+                        placeholder="#ffffff"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-xs">Favicon</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => faviconFileRef.current?.click()}
+                    className="w-full mt-1"
+                  >
+                    <Icon name="Image" size={14} className="mr-2" />
+                    {favicon ? 'Изменить favicon' : 'Загрузить favicon'}
+                  </Button>
+                  <input
+                    ref={faviconFileRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleFaviconUpload}
+                  />
+                </div>
+
+                <Button
+                  onClick={() => setAddElementDialog(true)}
+                  className="w-full bg-gradient-to-r from-primary to-secondary"
+                >
+                  <Icon name="Plus" size={16} className="mr-2" />
+                  Добавить элемент
+                </Button>
+
+                <Button
+                  onClick={saveVisualToCode}
+                  variant="outline"
+                  className="w-full border-primary hover:bg-primary/10"
+                >
+                  <Icon name="Save" size={16} className="mr-2" />
+                  Сохранить в код
+                </Button>
+              </div>
+            )}
           </Card>
 
           <Card className="p-6 bg-card border-border shadow-xl animate-fade-in">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold flex items-center gap-2">
                 <Icon name="Monitor" size={20} className="text-primary" />
-                Превью
+                Превью {visualMode && <span className="text-xs text-muted-foreground">(перетаскивайте элементы)</span>}
               </h2>
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-primary/50 hover:bg-primary/10 transition-all duration-300"
-                onClick={() => {
-                  const preview = document.getElementById('preview') as HTMLIFrameElement;
-                  if (preview) {
-                    preview.srcdoc = getPreviewContent();
-                  }
-                }}
-              >
-                <Icon name="RotateCw" size={16} className="mr-2" />
-                Обновить
-              </Button>
+              {!visualMode && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-primary/50 hover:bg-primary/10 transition-all duration-300"
+                  onClick={() => {
+                    const preview = document.getElementById('preview') as HTMLIFrameElement;
+                    if (preview) {
+                      preview.srcdoc = getPreviewContent();
+                    }
+                  }}
+                >
+                  <Icon name="RotateCw" size={16} className="mr-2" />
+                  Обновить
+                </Button>
+              )}
             </div>
 
-            <div className="h-[calc(100%-60px)] border-2 border-border rounded-lg overflow-hidden bg-white">
-              <iframe
-                id="preview"
-                srcDoc={getPreviewContent()}
-                className="w-full h-full"
-                title="Preview"
-                sandbox="allow-scripts"
-              />
-            </div>
+            {visualMode ? (
+              <div
+                ref={visualPreviewRef}
+                className="h-[calc(100%-60px)] border-2 border-border rounded-lg overflow-hidden relative"
+                style={{ backgroundColor: bgColor }}
+                onMouseMove={handleVisualPreviewMouseMove}
+                onMouseUp={handleVisualPreviewMouseUp}
+                onMouseLeave={handleVisualPreviewMouseUp}
+              >
+                {visualElements.map((el) => (
+                  <div
+                    key={el.id}
+                    className="absolute cursor-move hover:opacity-80 transition-opacity"
+                    style={{
+                      left: el.x,
+                      top: el.y,
+                      fontSize: el.fontSize,
+                      color: el.color,
+                    }}
+                    onMouseDown={() => handleVisualElementDragStart(el.id)}
+                  >
+                    {el.type === 'text' && <div>{el.content}</div>}
+                    {el.type === 'link' && (
+                      <a href={el.href} className="underline" onClick={(e) => e.preventDefault()}>
+                        {el.content}
+                      </a>
+                    )}
+                    {el.type === 'image' && (
+                      <img src={el.content} alt="element" className="max-w-[200px]" draggable={false} />
+                    )}
+                  </div>
+                ))}
+                {visualElements.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+                    <div className="text-center">
+                      <Icon name="MousePointerClick" size={48} className="mx-auto mb-4 opacity-50" />
+                      <p>Добавьте элементы через кнопку "Добавить элемент"</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="h-[calc(100%-60px)] border-2 border-border rounded-lg overflow-hidden bg-white">
+                <iframe
+                  id="preview"
+                  srcDoc={getPreviewContent()}
+                  className="w-full h-full"
+                  title="Preview"
+                  sandbox="allow-scripts"
+                />
+              </div>
+            )}
           </Card>
         </div>
       </div>
@@ -682,6 +946,91 @@ const Index = () => {
               className="bg-gradient-to-r from-primary to-secondary"
             >
               Создать
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addElementDialog} onOpenChange={setAddElementDialog}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader>
+            <DialogTitle>Добавить элемент</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Тип элемента</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  variant={newElementType === 'text' ? 'default' : 'outline'}
+                  onClick={() => setNewElementType('text')}
+                  className="w-full"
+                >
+                  <Icon name="Type" size={16} className="mr-2" />
+                  Текст
+                </Button>
+                <Button
+                  variant={newElementType === 'link' ? 'default' : 'outline'}
+                  onClick={() => setNewElementType('link')}
+                  className="w-full"
+                >
+                  <Icon name="Link" size={16} className="mr-2" />
+                  Ссылка
+                </Button>
+                <Button
+                  variant={newElementType === 'image' ? 'default' : 'outline'}
+                  onClick={() => setNewElementType('image')}
+                  className="w-full"
+                >
+                  <Icon name="Image" size={16} className="mr-2" />
+                  Изображение
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="element-content">
+                {newElementType === 'text' && 'Текст'}
+                {newElementType === 'link' && 'Текст ссылки'}
+                {newElementType === 'image' && 'URL изображения'}
+              </Label>
+              <Input
+                id="element-content"
+                value={newElementContent}
+                onChange={(e) => setNewElementContent(e.target.value)}
+                placeholder={
+                  newElementType === 'text'
+                    ? 'Введите текст...'
+                    : newElementType === 'link'
+                    ? 'Текст ссылки'
+                    : 'https://example.com/image.jpg'
+                }
+                className="bg-muted/30"
+              />
+            </div>
+
+            {newElementType === 'link' && (
+              <div className="space-y-2">
+                <Label htmlFor="element-href">URL ссылки</Label>
+                <Input
+                  id="element-href"
+                  value={newElementHref}
+                  onChange={(e) => setNewElementHref(e.target.value)}
+                  placeholder="https://example.com"
+                  className="bg-muted/30"
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddElementDialog(false)}>
+              Отмена
+            </Button>
+            <Button
+              onClick={addVisualElement}
+              className="bg-gradient-to-r from-primary to-secondary"
+            >
+              <Icon name="Plus" size={16} className="mr-2" />
+              Добавить
             </Button>
           </DialogFooter>
         </DialogContent>
